@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_string("from_model", "rnn2_alphabets", "From model name.")
 tf.app.flags.DEFINE_string("to_model", "rnn2_phonemes", "To model name.")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 2, "How many training steps to do per checkpoint.")
 #tf.app.flags.DEFINE_boolean("feed_forward", False, "Set to True for interactive decoding.")
-tf.app.flags.DEFINE_integer("n_steps", 50000, "Number of major epochs to run")
+tf.app.flags.DEFINE_integer("n_steps", 6, "Number of major epochs to run")
 #tf.app.flags.DEFINE_integer("gcloud", False, "Enable if running on cloud")
 
 FLAGS = tf.app.flags.FLAGS
@@ -43,8 +43,10 @@ def train():
 	else:
 		sess.run(tf.global_variables_initializer())
 	#RESTORE TO AND FROM MODELS
-	encoder_m = m.encoder_model.saver.restore(sess, FLAGS.from_model)
-	decoder_m = m.decoder_model.saver.restore(sess, FLAGS.to_model)
+	#with tf.variable_scope("encode_net"):
+	m.encoder_model.saver.restore(sess, FLAGS.from_model)
+	#with tf.variable_scope("decode_net"):
+	m.decoder_model.saver.restore(sess, FLAGS.to_model)
 
 	for i in range(int(FLAGS.n_steps/FLAGS.steps_per_checkpoint)):
 		err = m.run_n_epochs(sess, all_alphabets, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))

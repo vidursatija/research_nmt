@@ -26,7 +26,7 @@ class ModelMode():
 
 class DoubleRNNModel():
 
-	def __init__(self, vocab_size, hidden_size=64, learn_rate=0.25, encoding_mode=ModelMode.TRAIN, mid_state=None):
+	def __init__(self, vocab_size, hidden_size=64, learn_rate=0.25, encoding_mode=ModelMode.TRAIN, mid_state=None, coder_state=None):
 
 		self.hidden_units = hidden_size
 		self.vocab_size = vocab_size
@@ -36,17 +36,17 @@ class DoubleRNNModel():
 			gru_cell = tf.contrib.rnn.GRUCell(self.hidden_units)
 			#gru_cell = tf.contrib.rnn.DropoutWrapper(gru_cell, output_keep_prob=0.75)
 
-		rev_embed = tf.Variable(tf.truncated_normal([self.hidden_units, vocab_size], stddev=0.01, dtype=tf.float16), name='rev_w')
-		#rev_embed = tf.get_variable('rev_w', [self.hidden_units, vocab_size], dtype=tf.float16)
-		rev_bias = tf.Variable(tf.truncated_normal([vocab_size], stddev=0.01, dtype=tf.float16), name='rev_b')
-		#rev_bias = tf.get_variable('rev_b', [vocab_size], dtype=tf.float16)
+		#rev_embed = tf.Variable(tf.truncated_normal([self.hidden_units, vocab_size], stddev=0.01, dtype=tf.float16), name='rev_w')
+		rev_embed = tf.get_variable('rev_w', [self.hidden_units, vocab_size], dtype=tf.float16)
+		#rev_bias = tf.Variable(tf.truncated_normal([vocab_size], stddev=0.01, dtype=tf.float16), name='rev_b')
+		rev_bias = tf.get_variable('rev_b', [vocab_size], dtype=tf.float16)
 
 		with tf.device("/cpu:0"):
 			#if encoding_mode == ModelMode.TRAIN or encoding_mode == ModelMode.ENCODE:
 			self.inputX = tf.placeholder(tf.int32, shape=[None])
 
-			#embeddings = tf.get_variable('embedding', [vocab_size, hidden_size], dtype=tf.float16)
-			embeddings = tf.Variable(tf.truncated_normal([vocab_size, hidden_size], stddev=0.01, dtype=tf.float16), name='embedding')
+			embeddings = tf.get_variable('embedding', [vocab_size, hidden_size], dtype=tf.float16)
+			#embeddings = tf.Variable(tf.truncated_normal([vocab_size, hidden_size], stddev=0.01, dtype=tf.float16), name='embedding')
 
 			x = tf.reshape(tf.nn.embedding_lookup(embeddings, self.inputX), [1, -1, self.hidden_units])
 
@@ -71,9 +71,9 @@ class DoubleRNNModel():
 				outputs_2, f_state_2 = tf.nn.dynamic_rnn(gru_cell, x, initial_state=mid_state, dtype=tf.float16)
 				self.logits = tf.matmul(tf.reshape(outputs_2, [-1, self.hidden_units]), rev_embed) + rev_bias
 
-			if encoding_mode == ModelMode.ENCODE or encoding_mode == ModelMode.DECODE:
-				tvars = tf.trainable_variables()
-				del tvars[:]
+			#if encoding_mode == ModelMode.ENCODE or encoding_mode == ModelMode.DECODE:
+			#	tvars = tf.trainable_variables()
+			#	tvars = []
 
 		if encoding_mode == ModelMode.TRAIN:
 			output = tf.reshape(tf.concat(axis=1, values=outputs_2), [-1, self.hidden_units])
@@ -93,8 +93,7 @@ class DoubleRNNModel():
 			self.new_lr = tf.placeholder(tf.float32, shape=[])
 			self.lr_update = tf.assign(learn_r, self.new_lr)
 
-		print(tf.global_variables())
-		self.saver = tf.train.Saver(tf.global_variables())
+		self.saver = tf.train.Saver(tf.trainable_variables())
 
 	def run_n_epochs(self, sess, inputX, n_files, n=1):
 		avg_err = 0.0
@@ -117,13 +116,11 @@ class TranslatorModel():
 	#FEED FORWARD IMPLEMENTED LATER
 	def __init__(self, vocab_size_from, vocab_size_to, hidden_size=64, learn_rate=0.01):
 
-		with tf.name_scope("encode_net"):
+		with tf.variable_scope("encode_net"):
 			self.encoder_model = DoubleRNNModel(vocab_size_from, hidden_size=hidden_size, encoding_mode=ModelMode.ENCODE)
 
 		self.vocab_size_to = vocab_size_to
 		self.vocab_size_from = vocab_size_from
-		self.from_save_path = from_save_path
-		self.to_save_path = to_save_path
 		self.hidden_size = hidden_size
 		self.learn_rate = learn_rate
 
@@ -134,7 +131,7 @@ class TranslatorModel():
 
 		new_state = tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b)
 
-		with tf.name_scope("decode_net"):
+		with tf.variable_scope("decode_net"):
 			self.decoder_model = DoubleRNNModel(vocab_size_to, hidden_size=hidden_size, encoding_mode=ModelMode.DECODE, mid_state=new_state)
 
 		logits = self.decoder_model.logits
@@ -142,17 +139,17 @@ class TranslatorModel():
 		self.cost = tf.reduce_sum(loss)
 		learn_r = tf.Variable(learn_rate, trainable=False)
 
-		tvars = tf.trainable_variables()
-		print(tvars)
+		tvars = [translator_w, translator_b]#tf.trainable_variables()
+		
 		optimizer = tf.train.GradientDescentOptimizer(learn_r)
-		gradsvars = optimizer.compute_gradients(self.cost)
+		gradsvars = optimizer.compute_gradients(self.cost, tvars)
 		#print(gradsvars)
 		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 15)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
 		self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 		self.new_lr = tf.placeholder(tf.float32, shape=[])
 		self.lr_update = tf.assign(learn_r, self.new_lr)
-		print(tvars)
-		self.saver = tf.train.Saver([translator_w, translator_b])
+		#tf.logging.info([v.name for v in tvars])
+		self.saver = tf.train.Saver(tvars)
 
 	def run_n_epochs(self, sess, inputX, n_files, n=1):
 		avg_err = 0.0
