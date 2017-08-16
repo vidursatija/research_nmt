@@ -20,9 +20,9 @@ tf.app.flags.DEFINE_string("model_dir", ".", "Training directory.")
 tf.app.flags.DEFINE_string("model_name", "alpha_to_phoneme_pretrain", "Model name.")
 tf.app.flags.DEFINE_string("from_model", "rnn2_alphabets", "From model name.")
 tf.app.flags.DEFINE_string("to_model", "rnn2_phonemes", "To model name.")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 2, "How many training steps to do per checkpoint.")
+tf.app.flags.DEFINE_integer("steps_per_checkpoint", 1, "How many training steps to do per checkpoint.")
 #tf.app.flags.DEFINE_boolean("feed_forward", False, "Set to True for interactive decoding.")
-tf.app.flags.DEFINE_integer("n_steps", 6, "Number of major epochs to run")
+tf.app.flags.DEFINE_integer("n_steps", 1000, "Number of major epochs to run")
 #tf.app.flags.DEFINE_integer("gcloud", False, "Enable if running on cloud")
 
 FLAGS = tf.app.flags.FLAGS
@@ -37,19 +37,21 @@ def train():
 
 	m = TranslatorModel(FLAGS.vocab_size, FLAGS.vocab_size_r, hidden_size=FLAGS.word_size, learn_rate=FLAGS.learn_rate)
 	ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+	sess.run(tf.global_variables_initializer())
 	if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
 		tf.logging.info("Imported model")
 		m.saver.restore(sess, ckpt.model_checkpoint_path)
-	else:
-		sess.run(tf.global_variables_initializer())
+
 	#RESTORE TO AND FROM MODELS
 	#with tf.variable_scope("encode_net"):
+	tf.logging.info("Model encoder")
 	m.encoder_model.saver.restore(sess, FLAGS.from_model)
 	#with tf.variable_scope("decode_net"):
+	tf.logging.info("Model decoder")
 	m.decoder_model.saver.restore(sess, FLAGS.to_model)
 
 	for i in range(int(FLAGS.n_steps/FLAGS.steps_per_checkpoint)):
-		err = m.run_n_epochs(sess, all_alphabets, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))
+		err = m.run_n_epochs(sess, all_alphabets, all_phonemes, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))
 		#if i%2 == 1:
 		if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
 			m.saver.save(sess, ckpt.model_checkpoint_path)

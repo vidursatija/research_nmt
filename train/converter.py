@@ -35,12 +35,13 @@ def main(_):
 	model.saver.restore(sess, FLAGS.model_dir)
 	vars = tf.global_variables()#tf.contrib.framework.list_variables(FLAGS.model_dir_en)
 	new_vars = []
-	for v in vars:
-		nv = None
-		#v = tf.contrib.framework.load_variable(FLAGS.model_dir_en, name)
-		with tf.variable_scope(scope):
+	with tf.variable_scope(scope):
+		for v in vars:
+			nv = None
+			#v = tf.contrib.framework.load_variable(FLAGS.model_dir_en, name)
 			nv = tf.Variable(v.value(), name=v.name[:-2])
-		new_vars.append(nv)#tf.Variable(v.value(), name="/".join([scope, v.name])))
+			new_vars.append(nv)#tf.Variable(v.value(), name="/".join([scope, v.name])))
+
 	saver = tf.train.Saver(new_vars)
 	sess.run(tf.global_variables_initializer())
 	saver.save(sess, FLAGS.model_export)

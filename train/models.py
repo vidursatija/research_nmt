@@ -26,7 +26,7 @@ class ModelMode():
 
 class DoubleRNNModel():
 
-	def __init__(self, vocab_size, hidden_size=64, learn_rate=0.25, encoding_mode=ModelMode.TRAIN, mid_state=None, coder_state=None):
+	def __init__(self, vocab_size, hidden_size=64, learn_rate=0.25, encoding_mode=ModelMode.TRAIN, mid_state=None):
 
 		self.hidden_units = hidden_size
 		self.vocab_size = vocab_size
@@ -93,7 +93,15 @@ class DoubleRNNModel():
 			self.new_lr = tf.placeholder(tf.float32, shape=[])
 			self.lr_update = tf.assign(learn_r, self.new_lr)
 
-		self.saver = tf.train.Saver(tf.trainable_variables())
+		scope_name = ""
+		if encoding_mode == ModelMode.DECODE:
+			scope_name = "decode_net"
+		else:
+			if encoding_mode == ModelMode.ENCODE:
+				scope_name = "encode_net"
+
+		all_vars = [v for v in tf.trainable_variables() if v.name.startswith(scope_name)]
+		self.saver = tf.train.Saver(all_vars)
 
 	def run_n_epochs(self, sess, inputX, n_files, n=1):
 		avg_err = 0.0
@@ -151,19 +159,19 @@ class TranslatorModel():
 		#tf.logging.info([v.name for v in tvars])
 		self.saver = tf.train.Saver(tvars)
 
-	def run_n_epochs(self, sess, inputX, n_files, n=1):
+	def run_n_epochs(self, sess, inputX, inputY, n_files, n=1):
 		avg_err = 0.0
 		for e in range(n):
 			avg_err = 0.0
 			for f in range(n_files):
-				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:-1], self.decoder_model.inputX: inputX[f][:-1], self.targets: inputX[f][1:]})
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:-1], self.decoder_model.inputX: inputY[f][:-1], self.targets: inputY[f][1:]})
 				avg_err = (avg_err*f + cost_eval)/(f+1)
-				if f%1000 == 999:
+				if f%1500 == 1499:
 					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
-					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.00001*f))})
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.000017*f))})
 				#print(avg_err)
 			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
-			self.learn_rate = self.learn_rate*0.95
+			self.learn_rate = self.learn_rate*0.85
 			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
 
 		return avg_err
