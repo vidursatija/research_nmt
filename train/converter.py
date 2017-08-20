@@ -27,10 +27,10 @@ def main(_):
 	scope = ""
 	if FLAGS.mode == 1:
 		scope = "encode_net"
-		model = DoubleRNNModel(FLAGS.vocab_size, hidden_size=FLAGS.word_size, encoding_mode=ModelMode.ENCODE)
+		model = DoubleRNNModel(FLAGS.vocab_size, hidden_size=FLAGS.word_size)#, encoding_mode=ModelMode.ENCODE)
 	else:
 		scope = "decode_net"
-		model = DoubleRNNModel(FLAGS.vocab_size, hidden_size=FLAGS.word_size, encoding_mode=ModelMode.DECODE)
+		model = DoubleRNNModel(FLAGS.vocab_size, hidden_size=FLAGS.word_size)#, encoding_mode=ModelMode.DECODE)
 
 	model.saver.restore(sess, FLAGS.model_dir)
 	vars = tf.global_variables()#tf.contrib.framework.list_variables(FLAGS.model_dir_en)

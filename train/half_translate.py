@@ -6,20 +6,23 @@ import numpy as np
 import pickle
 import os
 import random
-from train.models import DoubleRNNModel, ModelMode
+from train.models import TranslatorModel #DoubleRNNModel, ModelMode
 #from models import DoubleRNNModel, ModelMode
 
 #tf.logging.set_verbosity(tf.logging.INFO)
 
-tf.app.flags.DEFINE_float("learn_rate", 0.15, "Learning rate.")
+tf.app.flags.DEFINE_float("learn_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_integer("word_size", 64, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("vocab_size", 28, "English vocabulary size.")
+tf.app.flags.DEFINE_integer("vocab_size_r", 41, "Phoneme vocabulary size.")
 tf.app.flags.DEFINE_string("pickle_dir", "words_phonemes.p", "Data directory")
-tf.app.flags.DEFINE_string("model_dir", "rnn2_alphabets", "Training directory.")
-tf.app.flags.DEFINE_string("model_name", "rnn2_alphabets", "Model name.")
+tf.app.flags.DEFINE_string("model_dir", ".", "Training directory.")
+tf.app.flags.DEFINE_string("model_name", "alpha_to_phoneme_half", "Model name.")
+tf.app.flags.DEFINE_string("from_model", "rnn2_alphabets", "From model name.")
+#tf.app.flags.DEFINE_string("to_model", "rnn2_phonemes", "To model name.")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 1, "How many training steps to do per checkpoint.")
 #tf.app.flags.DEFINE_boolean("feed_forward", False, "Set to True for interactive decoding.")
-tf.app.flags.DEFINE_integer("n_steps", 50000, "Number of major epochs to run")
+tf.app.flags.DEFINE_integer("n_steps", 1000, "Number of major epochs to run")
 #tf.app.flags.DEFINE_integer("gcloud", False, "Enable if running on cloud")
 
 FLAGS = tf.app.flags.FLAGS
@@ -29,18 +32,23 @@ def train():
 
 	pickle_file = tf.read_file(FLAGS.pickle_dir)
 	file_data = pickle.loads(sess.run(pickle_file))
-	all_alphabets = file_data["input"][1]
-	#all_alphabets = file_data["input"][1]
+	all_alphabets = file_data["input"][0]
+	all_phonemes = file_data["input"][1]
 
-	m = DoubleRNNModel(FLAGS.vocab_size, hidden_size=FLAGS.word_size, learn_rate=FLAGS.learn_rate, encoding_mode=ModelMode.TRAIN)
-	sess.run(tf.global_variables_initializer())
+	m = TranslatorModel(FLAGS.vocab_size, FLAGS.vocab_size_r, hidden_size=FLAGS.word_size, learn_rate=FLAGS.learn_rate)
 	ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+	sess.run(tf.global_variables_initializer())
 	if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
 		tf.logging.info("Imported model")
 		m.saver.restore(sess, ckpt.model_checkpoint_path)
 
+	#RESTORE TO AND FROM MODELS
+	#with tf.variable_scope("encode_net"):
+	tf.logging.info("Model encoder")
+	m.encoder_model.saver.restore(sess, FLAGS.from_model)
+
 	for i in range(int(FLAGS.n_steps/FLAGS.steps_per_checkpoint)):
-		err = m.run_n_epochs(sess, all_alphabets, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))
+		err = m.run_n_epochs(sess, all_alphabets, all_phonemes, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))
 		#if i%2 == 1:
 		if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
 			m.saver.save(sess, ckpt.model_checkpoint_path)

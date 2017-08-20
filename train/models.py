@@ -31,6 +31,7 @@ class DoubleRNNModel():
 		self.hidden_units = hidden_size
 		self.vocab_size = vocab_size
 		self.learn_rate = learn_rate
+		batch_size = 20
 
 		with tf.variable_scope("RNN") as scope:
 			gru_cell = tf.contrib.rnn.GRUCell(self.hidden_units)
@@ -41,18 +42,23 @@ class DoubleRNNModel():
 		#rev_bias = tf.Variable(tf.truncated_normal([vocab_size], stddev=0.01, dtype=tf.float16), name='rev_b')
 		rev_bias = tf.get_variable('rev_b', [vocab_size], dtype=tf.float16)
 
+		if encoding_mode == ModelMode.TRAIN:
+			reg_w = tf.get_variable('reg_w', [self.hidden_units, self.hidden_units], dtype=tf.float16)
+			reg_b = tf.get_variable('reg_b', [self.hidden_units], dtype=tf.float16)
+
 		with tf.device("/cpu:0"):
 			#if encoding_mode == ModelMode.TRAIN or encoding_mode == ModelMode.ENCODE:
-			self.inputX = tf.placeholder(tf.int32, shape=[None])
+			self.inputX = tf.placeholder(tf.int32, shape=[batch_size, None])
 
 			embeddings = tf.get_variable('embedding', [vocab_size, hidden_size], dtype=tf.float16)
 			#embeddings = tf.Variable(tf.truncated_normal([vocab_size, hidden_size], stddev=0.01, dtype=tf.float16), name='embedding')
 
-			x = tf.reshape(tf.nn.embedding_lookup(embeddings, self.inputX), [1, -1, self.hidden_units])
+			x = tf.reshape(tf.nn.embedding_lookup(embeddings, self.inputX), [batch_size, -1, self.hidden_units])
 
 			#x = tf.nn.dropout(x, 0.75)
 			if encoding_mode == ModelMode.TRAIN:
-				self.targets = tf.placeholder(tf.int32, shape=[None])
+				self.targets = tf.placeholder(tf.int32, shape=[batch_size, None])
+				long_targets = tf.reshape(self.targets, [-1])
 
 			#if encoding_mode == ModelMode.DECODE:
 			#	with tf.variable_scope("RNN") as scope:
@@ -64,8 +70,9 @@ class DoubleRNNModel():
 				outputs, self.f_state = tf.nn.dynamic_rnn(gru_cell, x, dtype=tf.float16)
 
 			if encoding_mode == ModelMode.TRAIN:
-				scope.reuse_variables()
-				outputs_2, f_state_2 = tf.nn.dynamic_rnn(gru_cell, x, initial_state=self.f_state, dtype=tf.float16)
+				scope.reuse_variables()	
+				new_state = tf.tanh(tf.matmul(self.f_state, reg_w) + reg_b)
+				outputs_2, f_state_2 = tf.nn.dynamic_rnn(gru_cell, x, initial_state=new_state, dtype=tf.float16)
 
 			if encoding_mode == ModelMode.DECODE:
 				outputs_2, f_state_2 = tf.nn.dynamic_rnn(gru_cell, x, initial_state=mid_state, dtype=tf.float16)
@@ -79,8 +86,8 @@ class DoubleRNNModel():
 			output = tf.reshape(tf.concat(axis=1, values=outputs_2), [-1, self.hidden_units])
 			logits =  tf.matmul(output, rev_embed) + rev_bias
 			#all_targets = tf.concat([self.targets, self.targets], -1)
-			loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [self.targets], [tf.ones_like(self.targets, dtype=tf.float16)])
-			self.cost = tf.reduce_sum(loss)
+			loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [long_targets], [tf.ones_like(long_targets, dtype=tf.float16)])
+			self.cost = tf.reduce_sum(loss) / batch_size
 			learn_r = tf.Variable(learn_rate, trainable=False)
 
 			tvars = tf.trainable_variables()
@@ -100,7 +107,7 @@ class DoubleRNNModel():
 			if encoding_mode == ModelMode.ENCODE:
 				scope_name = "encode_net"
 
-		all_vars = [v for v in tf.trainable_variables() if v.name.startswith(scope_name)]
+		all_vars = [v for v in tf.global_variables() if v.name.startswith(scope_name)]
 		self.saver = tf.train.Saver(all_vars)
 
 	def run_n_epochs(self, sess, inputX, n_files, n=1):
@@ -108,14 +115,14 @@ class DoubleRNNModel():
 		for e in range(n):
 			avg_err = 0.0
 			for f in range(n_files):
-				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.inputX: inputX[f][:-1], self.targets: inputX[f][1:]})
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.inputX: inputX[f][:, :-1], self.targets: inputX[f][:, 1:]})
 				avg_err = (avg_err*f + cost_eval)/(f+1)
-				if f%1500 == 1499:
+				if f%150 == 149:
 					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
-					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.00001*f))})
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.00002*f))})
 				#print(avg_err)
 			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
-			self.learn_rate = self.learn_rate*0.9
+			self.learn_rate = self.learn_rate*0.95
 			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
 
 		return avg_err
@@ -131,28 +138,34 @@ class TranslatorModel():
 		self.vocab_size_from = vocab_size_from
 		self.hidden_size = hidden_size
 		self.learn_rate = learn_rate
+		batch_size = 20
 
-		self.targets = tf.placeholder(tf.int32, shape=[None])
+		self.targets = tf.placeholder(tf.int32, shape=[batch_size, None])
+		long_targets = tf.reshape(self.targets, [-1])
 
 		translator_w = tf.get_variable("translator_w", [hidden_size, hidden_size], dtype=tf.float16)
 		translator_b = tf.get_variable("translator_b", [hidden_size], dtype=tf.float16)
 
+		"""reg_w = tf.get_variable("reg_w", [hidden_size, hidden_size], dtype=tf.float16)
+		reg_b = tf.get_variable("reg_b", [hidden_size], dtype=tf.float16)"""
+
+		#new_state = tf.matmul(tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b), reg_w) + reg_b
 		new_state = tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b)
 
 		with tf.variable_scope("decode_net"):
 			self.decoder_model = DoubleRNNModel(vocab_size_to, hidden_size=hidden_size, encoding_mode=ModelMode.DECODE, mid_state=new_state)
 
 		logits = self.decoder_model.logits
-		loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [self.targets], [tf.ones_like(self.targets, dtype=tf.float16)])
-		self.cost = tf.reduce_sum(loss)
+		loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [long_targets], [tf.ones_like(long_targets, dtype=tf.float16)])
+		self.cost = tf.reduce_sum(loss) / batch_size
 		learn_r = tf.Variable(learn_rate, trainable=False)
 
-		tvars = [translator_w, translator_b]#tf.trainable_variables()
+		tvars = [translator_w, translator_b]#, reg_w, reg_b]#tf.trainable_variables()
 		
 		optimizer = tf.train.GradientDescentOptimizer(learn_r)
 		gradsvars = optimizer.compute_gradients(self.cost, tvars)
 		#print(gradsvars)
-		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 15)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
+		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 10)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
 		self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 		self.new_lr = tf.placeholder(tf.float32, shape=[])
 		self.lr_update = tf.assign(learn_r, self.new_lr)
@@ -164,22 +177,188 @@ class TranslatorModel():
 		for e in range(n):
 			avg_err = 0.0
 			for f in range(n_files):
-				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:-1], self.decoder_model.inputX: inputY[f][:-1], self.targets: inputY[f][1:]})
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:, :-1], self.decoder_model.inputX: inputY[f][:, :-1], self.targets: inputY[f][:, 1:]})
 				avg_err = (avg_err*f + cost_eval)/(f+1)
-				if f%1500 == 1499:
+				if f%150 == 149:
 					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
-					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.000017*f))})
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.00005*f))})
 				#print(avg_err)
 			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
-			self.learn_rate = self.learn_rate*0.85
+			self.learn_rate = self.learn_rate*0.95
 			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
 
 		return avg_err
 
-"""if __name__ == '__main__':
-	#tm = TranslatorModel(28, 41, "rnn2_alphabets", "rnn2_phonemes")
-	sess = tf.InteractiveSession()	
-	dm = DoubleRNNModel(28)
-	while 1 == 1:
-		pass
-"""
+class HalfTranslatorModel():
+	#FEED FORWARD IMPLEMENTED LATER
+	def __init__(self, vocab_size_from, vocab_size_to, hidden_size=64, learn_rate=0.01):
+
+		with tf.variable_scope("encode_net"):
+			self.encoder_model = DoubleRNNModel(vocab_size_from, hidden_size=hidden_size, encoding_mode=ModelMode.ENCODE)
+
+		self.vocab_size_to = vocab_size_to
+		self.vocab_size_from = vocab_size_from
+		self.hidden_size = hidden_size
+		self.learn_rate = learn_rate
+		batch_size = 20
+
+		self.targets = tf.placeholder(tf.int32, shape=[20, None])
+		long_targets = tf.reshape(self.targets, [-1])
+
+		translator_w = tf.get_variable("translator_w", [hidden_size, hidden_size], dtype=tf.float16)
+		translator_b = tf.get_variable("translator_b", [hidden_size], dtype=tf.float16)
+
+		new_state = tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b)
+
+		with tf.variable_scope("decode_net"):
+			self.decoder_model = DoubleRNNModel(vocab_size_to, hidden_size=hidden_size, encoding_mode=ModelMode.DECODE, mid_state=new_state)
+
+		logits = self.decoder_model.logits
+		loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [long_targets], [tf.ones_like(long_targets, dtype=tf.float16)])
+		self.cost = tf.reduce_sum(loss) / batch_size
+		learn_r = tf.Variable(learn_rate, trainable=False)
+
+		tvars = [translator_w, translator_b]
+		tvars += [v for v in tf.trainable_variables() if v.name.startswith("decode_net")]#tf.trainable_variables()
+		
+		optimizer = tf.train.GradientDescentOptimizer(learn_r)
+		gradsvars = optimizer.compute_gradients(self.cost, tvars)
+		#print(gradsvars)
+		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 0.1)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
+		self.train_op = optimizer.apply_gradients(zip(grads, tvars))
+		self.new_lr = tf.placeholder(tf.float32, shape=[])
+		self.lr_update = tf.assign(learn_r, self.new_lr)
+		#tf.logging.info([v.name for v in tvars])
+		self.saver = tf.train.Saver(tvars)
+
+	def run_n_epochs(self, sess, inputX, inputY, n_files, n=1):
+		avg_err = 0.0
+		for e in range(n):
+			avg_err = 0.0
+			for f in range(n_files):
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:, :-1], self.decoder_model.inputX: inputY[f][:, :-1], self.targets: inputY[f][:, 1:]})
+				avg_err = (avg_err*f + cost_eval)/(f+1)
+				if f%150 == 149:
+					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.00005*f))})
+				#print(avg_err)
+			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
+			self.learn_rate = self.learn_rate*0.96
+			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
+
+		return avg_err
+
+class TranslatorModel_E2E():
+	#FEED FORWARD IMPLEMENTED LATER
+	def __init__(self, vocab_size_from, vocab_size_to, hidden_size=64, learn_rate=0.01):
+
+		with tf.variable_scope("encode_net"):
+			self.encoder_model = DoubleRNNModel(vocab_size_from, hidden_size=hidden_size, encoding_mode=ModelMode.ENCODE)
+
+		self.vocab_size_to = vocab_size_to
+		self.vocab_size_from = vocab_size_from
+		self.hidden_size = hidden_size
+		self.learn_rate = learn_rate
+		batch_size = 20
+
+		self.targets = tf.placeholder(tf.int32, shape=[20, None])
+		long_targets = tf.reshape(self.targets, [-1])
+
+		with tf.variable_scope("decode_net"):
+			self.decoder_model = DoubleRNNModel(vocab_size_to, hidden_size=hidden_size, encoding_mode=ModelMode.DECODE, mid_state=self.encoder_model.f_state)
+
+		logits = self.decoder_model.logits
+		loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [long_targets], [tf.ones_like(long_targets, dtype=tf.float16)])
+		self.cost = tf.reduce_sum(loss) / batch_size
+		learn_r = tf.Variable(learn_rate, trainable=False)
+
+		tvars = tf.trainable_variables()
+		
+		optimizer = tf.train.GradientDescentOptimizer(learn_r)
+		gradsvars = optimizer.compute_gradients(self.cost, tvars)
+		#print(gradsvars)
+		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 10)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
+		self.train_op = optimizer.apply_gradients(zip(grads, tvars))
+		self.new_lr = tf.placeholder(tf.float32, shape=[])
+		self.lr_update = tf.assign(learn_r, self.new_lr)
+		#tf.logging.info([v.name for v in tvars])
+		self.saver = tf.train.Saver(tvars)
+
+	def run_n_epochs(self, sess, inputX, inputY, n_files, n=1):
+		avg_err = 0.0
+		for e in range(n):
+			avg_err = 0.0
+			for f in range(n_files):
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:, :-1], self.decoder_model.inputX: inputY[f][:, :-1], self.targets: inputY[f][:, 1:]})
+				avg_err = (avg_err*f + cost_eval)/(f+1)
+				if f%150 == 149:
+					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.0001*f))})
+				#print(avg_err)
+			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
+			self.learn_rate = self.learn_rate*0.95
+			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
+
+		return avg_err
+
+class TranslatorModel_E2E_WW():
+	#FEED FORWARD IMPLEMENTED LATER
+	def __init__(self, vocab_size_from, vocab_size_to, hidden_size=64, learn_rate=0.01):
+
+		with tf.variable_scope("encode_net"):
+			self.encoder_model = DoubleRNNModel(vocab_size_from, hidden_size=hidden_size, encoding_mode=ModelMode.ENCODE)
+
+		self.vocab_size_to = vocab_size_to
+		self.vocab_size_from = vocab_size_from
+		self.hidden_size = hidden_size
+		self.learn_rate = learn_rate
+		batch_size = 20
+
+		self.targets = tf.placeholder(tf.int32, shape=[batch_size, None])
+		long_targets = tf.reshape(self.targets, [-1])
+
+		translator_w = tf.get_variable("translator_w", [hidden_size, hidden_size], dtype=tf.float16)
+		translator_b = tf.get_variable("translator_b", [hidden_size], dtype=tf.float16)
+
+		"""reg_w = tf.get_variable("reg_w", [hidden_size, hidden_size], dtype=tf.float16)
+		reg_b = tf.get_variable("reg_b", [hidden_size], dtype=tf.float16)"""
+
+		#new_state = tf.matmul(tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b), reg_w) + reg_b
+		new_state = tf.tanh(tf.matmul(self.encoder_model.f_state, translator_w) + translator_b)
+
+		with tf.variable_scope("decode_net"):
+			self.decoder_model = DoubleRNNModel(vocab_size_to, hidden_size=hidden_size, encoding_mode=ModelMode.DECODE, mid_state=new_state)
+
+		logits = self.decoder_model.logits
+		loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example([logits], [long_targets], [tf.ones_like(long_targets, dtype=tf.float16)])
+		self.cost = tf.reduce_sum(loss) / batch_size
+		learn_r = tf.Variable(learn_rate, trainable=False)
+
+		tvars = tf.trainable_variables()
+		
+		optimizer = tf.train.GradientDescentOptimizer(learn_r)
+		gradsvars = optimizer.compute_gradients(self.cost, tvars)
+		#print(gradsvars)
+		grads, _ = tf.clip_by_global_norm([g for g, v in gradsvars], 10)#tf.clip_by_global_norm(tf.gradients(cost, tvars), 10)
+		self.train_op = optimizer.apply_gradients(zip(grads, tvars))
+		self.new_lr = tf.placeholder(tf.float32, shape=[])
+		self.lr_update = tf.assign(learn_r, self.new_lr)
+		#tf.logging.info([v.name for v in tvars])
+		self.saver = tf.train.Saver(tvars)
+
+	def run_n_epochs(self, sess, inputX, inputY, n_files, n=1):
+		avg_err = 0.0
+		for e in range(n):
+			avg_err = 0.0
+			for f in range(n_files):
+				cost_eval, _ = sess.run([self.cost, self.train_op], feed_dict={self.encoder_model.inputX: inputX[f][:, :-1], self.decoder_model.inputX: inputY[f][:, :-1], self.targets: inputY[f][:, 1:]})
+				avg_err = (avg_err*f + cost_eval)/(f+1)
+				if f%150 == 149:
+					tf.logging.info(" ".join([str(avg_err), "at epoch", str(f)]))
+					sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate/(1+(0.0001*f))})
+				#print(avg_err)
+			tf.logging.info(" ".join([str(avg_err), "at major epoch", str(e)]))
+			self.learn_rate = self.learn_rate*0.95
+			sess.run(self.lr_update, feed_dict={self.new_lr: self.learn_rate})
+
+		return avg_err
