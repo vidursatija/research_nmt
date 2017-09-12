@@ -45,10 +45,10 @@ def train():
 	#RESTORE TO AND FROM MODELS
 	#with tf.variable_scope("encode_net"):
 	tf.logging.info("Model encoder")
-	m.encoder_model.saver.restore(sess, FLAGS.from_model)
+	#m.encoder_model.saver.restore(sess, FLAGS.from_model)
 	#with tf.variable_scope("decode_net"):
 	tf.logging.info("Model decoder")
-	m.decoder_model.saver.restore(sess, FLAGS.to_model)
+	#m.decoder_model.saver.restore(sess, FLAGS.to_model)
 
 	for i in range(int(FLAGS.n_steps/FLAGS.steps_per_checkpoint)):
 		err = m.run_n_epochs(sess, all_alphabets, all_phonemes, len(all_alphabets), n=int(FLAGS.steps_per_checkpoint))

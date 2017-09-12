@@ -43,20 +43,20 @@ class BatchGen():
 
 		self.letter_to_index = dict()
 		self.index_to_letter = list()
-		self.letter_to_index['<start>'] = 0
-		self.index_to_letter.append('<start>')
-		self.letter_to_index['<end>'] = 1
+		#self.letter_to_index['<start>'] = 0
+		#self.index_to_letter.append('<start>')
+		self.letter_to_index['<end>'] = 0
 		self.index_to_letter.append('<end>')
 		for index in range(0, 26):
-			self.letter_to_index[chr(index+97)] = index+2
+			self.letter_to_index[chr(index+97)] = index+1
 			self.index_to_letter.append(chr(index+97))
 
 		self.phoneme_to_index = dict()
 		self.index_to_phoneme = list()
-		index = 2
-		self.phoneme_to_index['<start>'] = 0
-		self.index_to_phoneme.append('<start>')
-		self.phoneme_to_index['<end>'] = 1
+		index = 1
+		#self.phoneme_to_index['<start>'] = 0
+		#self.index_to_phoneme.append('<start>')
+		self.phoneme_to_index['<end>'] = 0
 		self.index_to_phoneme.append('<end>')
 		for phoneme, _ in count_dict.items():
 			self.phoneme_to_index[phoneme] = index
@@ -77,13 +77,13 @@ class BatchGen():
 			batch_b = (lw, lp)
 			if batch_len[str(batch_b)] < 10:
 				continue
-			s = [0] + [self.letter_to_index[w] for w in list(c_word)]
+			s = [self.letter_to_index[w] for w in list(c_word)]
 			s.append(1)
 			l1 = len(s)
 
 			p = pro[0]
 			#for p in pro:
-			s2 = [0]
+			s2 = []
 			for phoneme in p:
 				if phoneme[-1] == '0' or phoneme[-1] == '1' or phoneme[-1] == '2':
 					phoneme = phoneme[:-1]
@@ -98,25 +98,31 @@ class BatchGen():
 		batch_p_list = []
 		for a_i in alpha_list:
 			l_a_i = len(a_i)
-			if l_a_i < 20:
-				batch_a_list.append(np.array(a_i + a_i[:20-l_a_i]))
-			else:
-				max_batch_count = int(l_a_i / 20)
+			if l_a_i < 50:
+				max_batch_count = int(50 / l_a_i)
 				for i in range(max_batch_count):
-					batch_a_list.append(np.array(a_i[20*i: 20*i+20]))
-				if l_a_i % 20 != 0:
-					batch_a_list.append(np.array(a_i[-20:]))
+					batch_a_list.append(np.array(a_i))
+				batch_a_list.append(np.array(a_i[:50%l_a_i]))
+			else:
+				max_batch_count = int(l_a_i / 50)
+				for i in range(max_batch_count):
+					batch_a_list.append(np.array(a_i[50*i: 50*i+50]))
+				if l_a_i % 50 != 0:
+					batch_a_list.append(np.array(a_i[-50:]))
 
 		for p_i in phone_list:
 			l_a_i = len(p_i)
-			if l_a_i < 20:
-				batch_p_list.append(np.array(p_i + p_i[:20-l_a_i]))
-			else:
-				max_batch_count = int(l_a_i / 20)
+			if l_a_i < 50:
+				max_batch_count = int(50 / l_a_i)
 				for i in range(max_batch_count):
-					batch_p_list.append(np.array(p_i[20*i: 20*i+20]))
-				if l_a_i % 20 != 0:
-					batch_p_list.append(np.array(p_i[-20:]))
+					batch_p_list.append(np.array(p_i))
+				batch_p_list.append(np.array(p_i[:50%l_a_i]))
+			else:
+				max_batch_count = int(l_a_i / 50)
+				for i in range(max_batch_count):
+					batch_p_list.append(np.array(p_i[50*i: 50*i+50]))
+				if l_a_i % 50 != 0:
+					batch_p_list.append(np.array(p_i[-50:]))
 
 		self.input_list = [batch_a_list, batch_p_list]
 		#for b in batch_a_list:
