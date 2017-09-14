@@ -100,9 +100,12 @@ class BatchGen():
 			l_a_i = len(a_i)
 			if l_a_i < 50:
 				max_batch_count = int(50 / l_a_i)
+				append_arr = np.empty([50, np.array(a_i).shape[1]], dtype=np.int32)
 				for i in range(max_batch_count):
-					batch_a_list.append(np.array(a_i))
-				batch_a_list.append(np.array(a_i[:50%l_a_i]))
+					append_arr[i*l_a_i:i*l_a_i + l_a_i, :] = a_i
+				if 50 % l_a_i != 0:
+					append_arr[max_batch_count*l_a_i:, :] = a_i[:50-max_batch_count*l_a_i]
+				batch_a_list.append(append_arr)
 			else:
 				max_batch_count = int(l_a_i / 50)
 				for i in range(max_batch_count):
@@ -114,9 +117,12 @@ class BatchGen():
 			l_a_i = len(p_i)
 			if l_a_i < 50:
 				max_batch_count = int(50 / l_a_i)
+				append_arr = np.empty([50, np.array(p_i).shape[1]], dtype=np.int32)
 				for i in range(max_batch_count):
-					batch_p_list.append(np.array(p_i))
-				batch_p_list.append(np.array(p_i[:50%l_a_i]))
+					append_arr[i*l_a_i:i*l_a_i + l_a_i, :] = p_i
+				if 50 % l_a_i != 0:
+					append_arr[max_batch_count*l_a_i:, :] = p_i[:50-max_batch_count*l_a_i]
+				batch_p_list.append(append_arr)
 			else:
 				max_batch_count = int(l_a_i / 50)
 				for i in range(max_batch_count):
@@ -125,8 +131,8 @@ class BatchGen():
 					batch_p_list.append(np.array(p_i[-50:]))
 
 		self.input_list = [batch_a_list, batch_p_list]
-		#for b in batch_a_list:
-		#	print(np.array(b).shape)
+		for b in batch_a_list:
+			print(np.array(b).shape)
 		print(len(batch_a_list))
 		print(len(batch_p_list))
 

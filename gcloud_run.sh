@@ -40,6 +40,18 @@ gcloud ml-engine jobs submit training $JOB_NAME --job-dir gs://rynet-425739-mlen
 --from_model gs://rynet-425739-mlengine/nmt_alphabets_V2_9/rnn2_alphabets_en \
 --to_model gs://rynet-425739-mlengine/nmt_phonemes_V2_3/rnn2_phonemes_de
 
+gcloud ml-engine jobs submit training $JOB_NAME --job-dir gs://rynet-425739-mlengine/$JOB_NAME/ --runtime-version 1.0 --module-name train.translate \
+--package-path train --region us-east1 --scale-tier=BASIC_GPU \
+-- --pickle_dir gs://rynet-425739-mlengine/data/words_phonemes.p --learn_rate 0.03 --model_dir gs://rynet-425739-mlengine/$JOB_NAME/ \
+--from_model gs://rynet-425739-mlengine/$JOB_NAME/encoder_alpha --to_model gs://rynet-425739-mlengine/$JOB_NAME/decoder_alpha \
+--model_name alphabets_ende
+
+gcloud ml-engine jobs submit training $JOB_NAME --job-dir gs://rynet-425739-mlengine/$JOB_NAME/ --runtime-version 1.0 --module-name train.translate \
+--package-path train --region us-east1 --scale-tier=BASIC_GPU \
+-- --pickle_dir gs://rynet-425739-mlengine/data/words_phonemes.p --learn_rate 0.06 --model_dir gs://rynet-425739-mlengine/$JOB_NAME/ \
+--from_model gs://rynet-425739-mlengine/$JOB_NAME/encoder_alpha --to_model gs://rynet-425739-mlengine/$JOB_NAME/decoder_alpha \
+--model_name phonemes_ende
+
 gcloud ml-engine jobs submit training $JOB_NAME --job-dir gs://rynet-425739-mlengine/$JOB_NAME/ --runtime-version 1.0 --module-name train.half_translate \
 --package-path train --region us-east1  --scale-tier=BASIC_GPU \
 -- --pickle_dir gs://rynet-425739-mlengine/data/words_phonemes.p --learn_rate 16.0 --model_dir gs://rynet-425739-mlengine/$JOB_NAME/ \
